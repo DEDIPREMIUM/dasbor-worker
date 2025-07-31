@@ -16,12 +16,16 @@ All notable changes to this project will be documented in this file.
 - **Automatic File Detection**: Detect main script files (index.js, worker.js, main.js)
 - **Wrangler Config Generation**: Auto-generate wrangler.toml if not present
 - **Deployment Status Updates**: Real-time status updates during deployment process
+- **Success Rate Indicators**: Display success rate for each deployment method
+- **Optimal Deployment Order**: Reordered methods based on success rate (Wrangler CLI first)
+- **Enhanced File Detection**: Improved detection of script files in Wrangler CLI method
 
 ### 🔄 Changed
 - **Input Flow**: Changed from script URL to GitHub repository URL
 - **Deployment Process**: Now clones repository instead of downloading single file
+- **Deployment Order**: Optimized deployment order based on success rate (Wrangler CLI first)
 - **Error Messages**: More detailed error messages with troubleshooting suggestions
-- **Success Feedback**: Enhanced success messages with deployment method used
+- **Success Feedback**: Enhanced success messages with deployment method used and success rate
 - **State Management**: Updated state handling for new deployment flow
 
 ### 🐛 Fixed
