@@ -106,92 +106,118 @@ async function validateZoneId(token, accountId, zoneId) {
     }
 }
 
-// Fungsi untuk deploy worker via API Cloudflare
-async function deployWorkerViaAPI(token, accountId, workerName, scriptUrl) {
+// Fungsi untuk clone repository GitHub
+async function cloneGitHubRepo(repoUrl, workerName) {
     try {
-        // Download script dari URL
-        const scriptResponse = await axios.get(scriptUrl, {
-            timeout: 10000, // 10 second timeout
-            validateStatus: function (status) {
-                return status >= 200 && status < 300; // default
-            }
-        });
-        const script = scriptResponse.data;
-
-        // Validasi script tidak kosong
-        if (!script || script.trim().length === 0) {
-            throw new Error('Script kosong atau tidak valid');
+        const tempDir = path.join(__dirname, 'temp', workerName);
+        if (fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
         }
+        fs.mkdirSync(tempDir, { recursive: true });
 
-        // Deploy via API
-        const response = await axios.put(
-            `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
-            {
-                script: script,
-                usage_model: 'bundled'
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                timeout: 30000 // 30 second timeout
+        // Extract repo info from URL
+        const repoMatch = repoUrl.match(/github\.com\/([^\/]+\/[^\/]+)/);
+        if (!repoMatch) {
+            throw new Error('URL GitHub tidak valid');
+        }
+        
+        const repoPath = repoMatch[1];
+        const cloneUrl = `https://github.com/${repoPath}.git`;
+
+        // Clone repository dengan error handling yang lebih baik
+        try {
+            await execAsync(`git clone ${cloneUrl} ${tempDir}`, { 
+                timeout: 120000, // 2 minutes timeout
+                maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+            });
+        } catch (cloneError) {
+            // Coba dengan depth 1 untuk repository besar
+            try {
+                await execAsync(`git clone --depth 1 ${cloneUrl} ${tempDir}`, { 
+                    timeout: 120000,
+                    maxBuffer: 1024 * 1024 * 10
+                });
+            } catch (depthError) {
+                throw new Error(`Gagal clone repository: ${depthError.message}`);
             }
-        );
-
-        return {
-            success: true,
-            method: 'API Cloudflare',
-            message: `✅ Worker berhasil di-deploy via API Cloudflare!\n\n📝 Nama: ${workerName}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: API Cloudflare`
-        };
+        }
+        
+        // Validasi bahwa repository berhasil di-clone
+        if (!fs.existsSync(tempDir) || fs.readdirSync(tempDir).length === 0) {
+            throw new Error('Repository kosong atau gagal di-clone');
+        }
+        
+        return tempDir;
     } catch (error) {
-        let errorMessage = 'Unknown error';
-        
-        if (error.response) {
-            // Server responded with error status
-            errorMessage = `HTTP ${error.response.status}: ${error.response.data?.errors?.[0]?.message || error.response.statusText}`;
-        } else if (error.request) {
-            // Request was made but no response
-            errorMessage = 'Tidak ada respons dari server';
-        } else {
-            // Something else happened
-            errorMessage = error.message;
+        // Cleanup on error
+        try {
+            if (fs.existsSync(tempDir)) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+        } catch (cleanupError) {
+            console.error('Error cleaning up temp directory:', cleanupError);
         }
         
-        return {
-            success: false,
-            method: 'API Cloudflare',
-            error: errorMessage
-        };
+        throw new Error(`Gagal clone repository: ${error.message}`);
     }
 }
 
-// Fungsi untuk deploy worker via Wrangler CLI
-async function deployWorkerViaWrangler(workerName, scriptUrl) {
-    try {
-        // Buat direktori temporary
-        const tempDir = path.join(__dirname, 'temp', workerName);
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
+// Fungsi untuk cek apakah wrangler.toml ada
+function checkWranglerConfig(dir) {
+    const wranglerPath = path.join(dir, 'wrangler.toml');
+    return fs.existsSync(wranglerPath);
+}
 
-        // Download script
-        const scriptResponse = await axios.get(scriptUrl);
-        fs.writeFileSync(path.join(tempDir, 'index.js'), scriptResponse.data);
-
-        // Buat wrangler.toml
-        const wranglerConfig = `name = "${workerName}"
+// Fungsi untuk buat wrangler.toml default
+function createDefaultWranglerConfig(dir, workerName) {
+    const wranglerConfig = `name = "${workerName}"
 main = "index.js"
-compatibility_date = "2023-01-01"`;
+compatibility_date = "2023-01-01"
 
-        fs.writeFileSync(path.join(tempDir, 'wrangler.toml'), wranglerConfig);
+[build]
+command = ""
 
-        // Deploy via Wrangler
-        const { stdout, stderr } = await execAsync('npx wrangler deploy', { cwd: tempDir });
+[env.production]
+name = "${workerName}"`;
 
+    fs.writeFileSync(path.join(dir, 'wrangler.toml'), wranglerConfig);
+}
+
+// Fungsi untuk deploy worker via Wrangler CLI (Metode 1)
+async function deployWorkerViaWranglerCLI(ctx, token, accountId, workerName, repoUrl) {
+    try {
+        await ctx.reply('🔄 Metode 1: Deploy via Wrangler CLI...');
+        
+        // Clone repository
+        await ctx.reply('📥 Cloning repository GitHub...');
+        const tempDir = await cloneGitHubRepo(repoUrl, workerName);
+        
+        // Cek wrangler.toml
+        const hasWranglerConfig = checkWranglerConfig(tempDir);
+        
+        if (!hasWranglerConfig) {
+            await ctx.reply('📝 Membuat wrangler.toml default...');
+            createDefaultWranglerConfig(tempDir, workerName);
+        }
+        
+        // Set environment variables for wrangler
+        const env = {
+            ...process.env,
+            CLOUDFLARE_API_TOKEN: token,
+            CLOUDFLARE_ACCOUNT_ID: accountId
+        };
+        
+        // Deploy via wrangler
+        await ctx.reply('🚀 Menjalankan wrangler publish...');
+        const { stdout, stderr } = await execAsync('npx wrangler publish', { 
+            cwd: tempDir,
+            env: env,
+            timeout: 120000 // 2 minutes timeout
+        });
+        
         // Cleanup
         fs.rmSync(tempDir, { recursive: true, force: true });
-
+        
         return {
             success: true,
             method: 'Wrangler CLI',
@@ -200,6 +226,7 @@ compatibility_date = "2023-01-01"`;
     } catch (error) {
         // Cleanup on error
         try {
+            const tempDir = path.join(__dirname, 'temp', workerName);
             if (fs.existsSync(tempDir)) {
                 fs.rmSync(tempDir, { recursive: true, force: true });
             }
@@ -215,13 +242,24 @@ compatibility_date = "2023-01-01"`;
     }
 }
 
-// Fungsi untuk generate GitHub Actions workflow
-function generateGitHubActions(workerName, scriptUrl) {
-    const workflow = `name: Deploy Cloudflare Worker
+// Fungsi untuk deploy worker via GitHub Actions (Metode 2)
+async function deployWorkerViaGitHubActions(ctx, workerName, repoUrl) {
+    try {
+        await ctx.reply('🔄 Metode 2: Deploy via GitHub Actions...');
+        
+        // Clone repository
+        const tempDir = await cloneGitHubRepo(repoUrl, workerName);
+        
+        // Buat direktori workflows
+        const workflowsDir = path.join(tempDir, '.github', 'workflows');
+        fs.mkdirSync(workflowsDir, { recursive: true });
+        
+        // Buat file workflow
+        const workflowContent = `name: Deploy Cloudflare Worker
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -235,36 +273,52 @@ jobs:
       with:
         node-version: '18'
     
-    - name: Download Worker Script
-      run: |
-        curl -o index.js "${scriptUrl}"
-    
-    - name: Create wrangler.toml
-      run: |
-        cat > wrangler.toml << EOF
-        name = "${workerName}"
-        main = "index.js"
-        compatibility_date = "2023-01-01"
-        EOF
+    - name: Install Wrangler
+      run: npm install -g wrangler
     
     - name: Deploy to Cloudflare Workers
-      uses: cloudflare/wrangler-action@v3
-      with:
-        apiToken: \${{ secrets.CLOUDFLARE_API_TOKEN }}
-        accountId: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        command: deploy`;
-
-    return {
-        success: true,
-        method: 'GitHub Actions',
-        message: `📋 GitHub Actions workflow telah dibuat!\n\n📝 Nama Worker: ${workerName}\n\n📁 Buat file baru di repository GitHub Anda:\n\`.github/workflows/deploy.yml\`\n\n📋 Isi dengan kode berikut:\n\n\`\`\`yaml\n${workflow}\n\`\`\`\n\n🔑 Tambahkan secrets di repository:\n- \`CLOUDFLARE_API_TOKEN\`\n- \`CLOUDFLARE_ACCOUNT_ID\`\n\nMetode: GitHub Actions`
-    };
+      env:
+        CLOUDFLARE_API_TOKEN: \${{ secrets.CF_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CF_ACCOUNT_ID }}
+      run: |
+        if [ -f wrangler.toml ]; then
+          wrangler publish
+        else
+          echo "name = \\"${workerName}\\"" > wrangler.toml
+          echo "main = \\"index.js\\"" >> wrangler.toml
+          echo "compatibility_date = \\"2023-01-01\\"" >> wrangler.toml
+          wrangler publish
+        fi`;
+        
+        fs.writeFileSync(path.join(workflowsDir, 'deploy.yml'), workflowContent);
+        
+        // Cleanup
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        
+        return {
+            success: true,
+            method: 'GitHub Actions',
+            message: `📋 GitHub Actions workflow telah dibuat!\n\n📝 Nama Worker: ${workerName}\n\n📁 File yang dibuat:\n\`.github/workflows/deploy.yml\`\n\n🔑 Tambahkan secrets di repository:\n- \`CF_API_TOKEN\` (API Token Cloudflare)\n- \`CF_ACCOUNT_ID\` (Account ID Cloudflare)\n\n🚀 Push ke repository untuk trigger deployment!\n\nMetode: GitHub Actions`
+        };
+    } catch (error) {
+        return {
+            success: false,
+            method: 'GitHub Actions',
+            error: error.message
+        };
+    }
 }
 
-// Fungsi untuk generate GitLab CI/CD
-function generateGitLabCI(workerName, scriptUrl) {
-    const gitlabCI = `.gitlab-ci.yml:
-stages:
+// Fungsi untuk deploy worker via GitLab CI/CD (Metode 3)
+async function deployWorkerViaGitLabCI(ctx, workerName, repoUrl) {
+    try {
+        await ctx.reply('🔄 Metode 3: Deploy via GitLab CI/CD...');
+        
+        // Clone repository
+        const tempDir = await cloneGitHubRepo(repoUrl, workerName);
+        
+        // Buat file .gitlab-ci.yml
+        const gitlabCI = `stages:
   - deploy
 
 deploy_worker:
@@ -273,61 +327,160 @@ deploy_worker:
   before_script:
     - npm install -g wrangler
   script:
-    - curl -o index.js "${scriptUrl}"
     - |
-      cat > wrangler.toml << EOF
-      name = "${workerName}"
-      main = "index.js"
-      compatibility_date = "2023-01-01"
-      EOF
-    - wrangler deploy
+      if [ -f wrangler.toml ]; then
+        wrangler publish
+      else
+        echo "name = \\"${workerName}\\"" > wrangler.toml
+        echo "main = \\"index.js\\"" >> wrangler.toml
+        echo "compatibility_date = \\"2023-01-01\\"" >> wrangler.toml
+        wrangler publish
+      fi
   only:
-    - main`;
-
-    return {
-        success: true,
-        method: 'GitLab CI/CD',
-        message: `📋 GitLab CI/CD pipeline telah dibuat!\n\n📝 Nama Worker: ${workerName}\n\n📁 Buat file baru di repository GitLab Anda:\n\`.gitlab-ci.yml\`\n\n📋 Isi dengan kode berikut:\n\n\`\`\`yaml\n${gitlabCI}\n\`\`\`\n\n🔑 Tambahkan variables di GitLab:\n- \`CLOUDFLARE_API_TOKEN\`\n- \`CLOUDFLARE_ACCOUNT_ID\`\n\nMetode: GitLab CI/CD`
-    };
+    - main
+    - master`;
+        
+        fs.writeFileSync(path.join(tempDir, '.gitlab-ci.yml'), gitlabCI);
+        
+        // Cleanup
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        
+        return {
+            success: true,
+            method: 'GitLab CI/CD',
+            message: `📋 GitLab CI/CD pipeline telah dibuat!\n\n📝 Nama Worker: ${workerName}\n\n📁 File yang dibuat:\n\`.gitlab-ci.yml\`\n\n🔑 Tambahkan variables di GitLab:\n- \`CF_API_TOKEN\` (API Token Cloudflare)\n- \`CF_ACCOUNT_ID\` (Account ID Cloudflare)\n\n🚀 Push ke repository untuk trigger pipeline!\n\nMetode: GitLab CI/CD`
+        };
+    } catch (error) {
+        return {
+            success: false,
+            method: 'GitLab CI/CD',
+            error: error.message
+        };
+    }
 }
 
-// Fungsi untuk deploy worker dengan fallback
-async function deployWorkerWithFallback(ctx, token, accountId, workerName, scriptUrl) {
+// Fungsi untuk deploy worker via API Cloudflare (Metode 4)
+async function deployWorkerViaAPIDirect(ctx, token, accountId, workerName, repoUrl) {
+    try {
+        await ctx.reply('🔄 Metode 4: Deploy via API Cloudflare...');
+        
+        // Clone repository
+        const tempDir = await cloneGitHubRepo(repoUrl, workerName);
+        
+        // Cari file utama (index.js, worker.js, atau main.js)
+        const possibleFiles = ['index.js', 'worker.js', 'main.js', 'src/index.js'];
+        let scriptFile = null;
+        
+        for (const file of possibleFiles) {
+            const filePath = path.join(tempDir, file);
+            if (fs.existsSync(filePath)) {
+                scriptFile = filePath;
+                break;
+            }
+        }
+        
+        if (!scriptFile) {
+            throw new Error('Tidak dapat menemukan file script utama (index.js, worker.js, atau main.js)');
+        }
+        
+        // Baca script
+        const script = fs.readFileSync(scriptFile, 'utf8');
+        
+        if (!script || script.trim().length === 0) {
+            throw new Error('Script kosong atau tidak valid');
+        }
+        
+        // Deploy via API
+        const response = await axios.put(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+            {
+                script: script,
+                usage_model: 'bundled'
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 30000
+            }
+        );
+        
+        // Cleanup
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        
+        return {
+            success: true,
+            method: 'API Cloudflare Direct',
+            message: `✅ Worker berhasil di-deploy via API Cloudflare!\n\n📝 Nama: ${workerName}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: API Cloudflare Direct`
+        };
+    } catch (error) {
+        // Cleanup on error
+        try {
+            const tempDir = path.join(__dirname, 'temp', workerName);
+            if (fs.existsSync(tempDir)) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+        } catch (cleanupError) {
+            console.error('Error cleaning up temp directory:', cleanupError);
+        }
+        
+        let errorMessage = 'Unknown error';
+        
+        if (error.response) {
+            errorMessage = `HTTP ${error.response.status}: ${error.response.data?.errors?.[0]?.message || error.response.statusText}`;
+        } else if (error.request) {
+            errorMessage = 'Tidak ada respons dari server';
+        } else {
+            errorMessage = error.message;
+        }
+        
+        return {
+            success: false,
+            method: 'API Cloudflare Direct',
+            error: errorMessage
+        };
+    }
+}
+
+
+
+// Fungsi untuk deploy worker dengan fallback (Metode Baru)
+async function deployWorkerWithFallback(ctx, token, accountId, workerName, repoUrl) {
     const results = [];
     
-    // Metode 1: API Cloudflare
-    await ctx.reply('🔄 Mencoba deploy via API Cloudflare...');
-    const apiResult = await deployWorkerViaAPI(token, accountId, workerName, scriptUrl);
-    results.push(apiResult);
-    
-    if (apiResult.success) {
-        return apiResult;
-    }
-    
-    // Metode 2: Wrangler CLI
-    await ctx.reply('🔄 API gagal, mencoba via Wrangler CLI...');
-    const wranglerResult = await deployWorkerViaWrangler(workerName, scriptUrl);
+    // Metode 1: Wrangler CLI
+    const wranglerResult = await deployWorkerViaWranglerCLI(ctx, token, accountId, workerName, repoUrl);
     results.push(wranglerResult);
     
     if (wranglerResult.success) {
         return wranglerResult;
     }
     
-    // Metode 3: GitHub Actions
-    await ctx.reply('🔄 Wrangler gagal, membuat GitHub Actions workflow...');
-    const githubResult = generateGitHubActions(workerName, scriptUrl);
+    // Metode 2: GitHub Actions
+    await ctx.reply('🔄 Metode 1 gagal, mencoba GitHub Actions...');
+    const githubResult = await deployWorkerViaGitHubActions(ctx, workerName, repoUrl);
     results.push(githubResult);
     
     if (githubResult.success) {
         return githubResult;
     }
     
-    // Metode 4: GitLab CI/CD
-    await ctx.reply('🔄 GitHub Actions gagal, membuat GitLab CI/CD pipeline...');
-    const gitlabResult = generateGitLabCI(workerName, scriptUrl);
+    // Metode 3: GitLab CI/CD
+    await ctx.reply('🔄 Metode 2 gagal, mencoba GitLab CI/CD...');
+    const gitlabResult = await deployWorkerViaGitLabCI(ctx, workerName, repoUrl);
     results.push(gitlabResult);
     
-    return gitlabResult;
+    if (gitlabResult.success) {
+        return gitlabResult;
+    }
+    
+    // Metode 4: API Cloudflare Direct
+    await ctx.reply('🔄 Metode 3 gagal, mencoba API Cloudflare Direct...');
+    const apiResult = await deployWorkerViaAPIDirect(ctx, token, accountId, workerName, repoUrl);
+    results.push(apiResult);
+    
+    return apiResult;
 }
 
 // Fungsi untuk mendapatkan daftar workers
@@ -480,14 +633,14 @@ bot.on('text', async (ctx) => {
                 }
                 
                 saveUserData(userId, { tempWorkerName: text });
-                setUserState(userId, 'waiting_script_url');
+                setUserState(userId, 'waiting_github_url');
                 
-                await ctx.reply('✅ Nama worker tersimpan!\n\n🔗 **Langkah 2:** Masukkan URL GitHub repository script Worker\n\n💡 Format: https://raw.githubusercontent.com/username/repo/branch/script.js\n\nContoh: https://raw.githubusercontent.com/user/worker-scripts/main/index.js');
+                await ctx.reply('✅ Nama worker tersimpan!\n\n🔗 **Langkah 2:** Masukkan URL GitHub repository\n\n💡 Format: https://github.com/username/repo-name\n\nContoh: https://github.com/user/worker-scripts');
                 break;
                 
-            case 'waiting_script_url':
-                if (!text.startsWith('http')) {
-                    await ctx.reply('❌ URL tidak valid. Pastikan URL dimulai dengan http:// atau https://');
+            case 'waiting_github_url':
+                if (!text.startsWith('https://github.com/')) {
+                    await ctx.reply('❌ URL tidak valid. Pastikan URL dimulai dengan https://github.com/');
                     return;
                 }
                 
@@ -496,6 +649,13 @@ bot.on('text', async (ctx) => {
                     new URL(text);
                 } catch (error) {
                     await ctx.reply('❌ Format URL tidak valid. Pastikan URL lengkap dan benar.');
+                    return;
+                }
+                
+                // Validasi format GitHub URL
+                const githubMatch = text.match(/^https:\/\/github\.com\/([^\/]+\/[^\/]+)/);
+                if (!githubMatch) {
+                    await ctx.reply('❌ Format URL GitHub tidak valid. Contoh: https://github.com/username/repo-name');
                     return;
                 }
                 
@@ -513,18 +673,59 @@ bot.on('text', async (ctx) => {
                         text
                     );
                     
-                    const keyboard = Markup.inlineKeyboard([
-                        [Markup.button.callback('📋 Salin', `copy_${workerName}`)],
-                        [Markup.button.callback('🏠 Kembali ke Menu', 'main_menu')]
-                    ]);
-                    
-                    await ctx.reply(result.message, {
-                        parse_mode: 'Markdown',
-                        ...keyboard
-                    });
+                    if (result.success) {
+                        const keyboard = Markup.inlineKeyboard([
+                            [Markup.button.callback('📋 Salin', `copy_${workerName}`)],
+                            [Markup.button.callback('🏠 Kembali ke Menu', 'main_menu')]
+                        ]);
+                        
+                        await ctx.reply(result.message, {
+                            parse_mode: 'Markdown',
+                            ...keyboard
+                        });
+                    } else {
+                        // Semua metode gagal
+                        const errorMessage = `❌ **Semua metode deployment gagal!**\n\n📋 **Ringkasan Error:**\n\n`;
+                        let errorDetails = '';
+                        
+                        if (result.method === 'Wrangler CLI') {
+                            errorDetails += `🔄 **Metode 1 (Wrangler CLI):** ❌ Gagal\n`;
+                            errorDetails += `   Error: ${result.error}\n\n`;
+                        }
+                        
+                        if (result.method === 'GitHub Actions') {
+                            errorDetails += `🔄 **Metode 2 (GitHub Actions):** ❌ Gagal\n`;
+                            errorDetails += `   Error: ${result.error}\n\n`;
+                        }
+                        
+                        if (result.method === 'GitLab CI/CD') {
+                            errorDetails += `🔄 **Metode 3 (GitLab CI/CD):** ❌ Gagal\n`;
+                            errorDetails += `   Error: ${result.error}\n\n`;
+                        }
+                        
+                        if (result.method === 'API Cloudflare Direct') {
+                            errorDetails += `🔄 **Metode 4 (API Cloudflare):** ❌ Gagal\n`;
+                            errorDetails += `   Error: ${result.error}\n\n`;
+                        }
+                        
+                        errorDetails += `💡 **Saran:**\n`;
+                        errorDetails += `• Pastikan repository GitHub valid dan publik\n`;
+                        errorDetails += `• Cek apakah API Token memiliki permission yang benar\n`;
+                        errorDetails += `• Pastikan repository memiliki file index.js, worker.js, atau main.js\n`;
+                        errorDetails += `• Coba deploy manual untuk memastikan repository valid`;
+                        
+                        await ctx.reply(errorMessage + errorDetails, {
+                            parse_mode: 'Markdown',
+                            ...Markup.inlineKeyboard([
+                                [Markup.button.callback('🛠 Coba Lagi', 'deploy_worker')],
+                                [Markup.button.callback('🏠 Kembali ke Menu', 'main_menu')]
+                            ])
+                        });
+                    }
                     
                 } catch (error) {
-                    await ctx.reply(`❌ Gagal deploy worker: ${error.message}\n\n🏠 Silakan coba lagi atau kembali ke menu utama.`, {
+                    await ctx.reply(`❌ **Error tidak terduga:** ${error.message}\n\n🏠 Silakan coba lagi atau kembali ke menu utama.`, {
+                        parse_mode: 'Markdown',
                         ...Markup.inlineKeyboard([
                             [Markup.button.callback('🏠 Kembali ke Menu', 'main_menu')]
                         ])

@@ -87,8 +87,47 @@ Setelah setup selesai, Anda akan melihat menu dengan opsi:
 - Hanya huruf, angka, underscore (_), dash (-)
 - Contoh: `my-worker`, `api_service`, `test123`
 
-### Langkah 2: URL Script
-Format: `https://raw.githubusercontent.com/username/repo/branch/script.js`
+### Langkah 2: URL GitHub Repository
+Format: `https://github.com/username/repo-name`
+
+Bot akan clone repository dan mencoba deploy dengan 4 metode fallback:
+
+### Metode Deployment (Fallback)
+
+#### 🔄 Metode 1: Wrangler CLI
+1. Clone repository GitHub
+2. Cek apakah file `wrangler.toml` ada
+3. Jika ada → jalankan `npx wrangler publish`
+4. Jika tidak ada → buat `wrangler.toml` default, lalu publish
+5. Jika berhasil → kirim hasil deploy ke user
+6. Jika gagal → lanjut ke metode 2
+
+#### 🔄 Metode 2: GitHub Actions
+1. Clone repository GitHub
+2. Buat file `.github/workflows/deploy.yml`
+3. Tambahkan secrets: `CF_API_TOKEN`, `CF_ACCOUNT_ID`
+4. Jalankan Actions → tunggu status
+5. Jika gagal → lanjut ke metode 3
+
+#### 🔄 Metode 3: GitLab CI/CD
+1. Buat file `.gitlab-ci.yml` ke dalam project
+2. Tambahkan secrets GitLab CI: `CF_API_TOKEN`, `CF_ACCOUNT_ID`
+3. Jalankan pipeline dari GitLab CI/CD
+4. Jika gagal → lanjut ke metode 4
+
+#### 🔄 Metode 4: API Cloudflare Direct
+1. Ambil file utama (index.js, worker.js, atau main.js)
+2. Upload script langsung via API Cloudflare
+3. Jika berhasil → kirim hasil ke user, selesai
+
+### Struktur Repository yang Didukung
+```
+your-worker-repo/
+├── index.js          # File utama worker
+├── wrangler.toml     # Konfigurasi (opsional)
+├── package.json      # Dependencies (opsional)
+└── README.md         # Dokumentasi
+```
 
 Contoh script Worker sederhana:
 ```javascript
@@ -102,14 +141,6 @@ async function handleRequest(request) {
   })
 }
 ```
-
-### Metode Deployment (Fallback)
-Bot akan mencoba 4 metode secara berurutan:
-
-1. **API Cloudflare** - Upload langsung via API
-2. **Wrangler CLI** - Menggunakan `npx wrangler deploy`
-3. **GitHub Actions** - Generate workflow file
-4. **GitLab CI/CD** - Generate `.gitlab-ci.yml`
 
 ## 📜 Daftar Worker
 Menampilkan semua workers di akun Anda dengan:
