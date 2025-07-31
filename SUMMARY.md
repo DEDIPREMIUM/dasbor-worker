@@ -8,27 +8,27 @@ Bot Telegram untuk mengelola Cloudflare Workers telah diperbarui dengan sistem d
 
 ### 1. **Sistem Deployment 4 Metode Fallback**
 
-#### Metode 1: Wrangler CLI (Otomatis)
-- Clone repository GitHub
+#### ✅ Metode 1: API Langsung (Direct Upload via API)
+- Baca file langsung dari raw.githubusercontent.com
+- Cari file utama: index.js, worker.js, main.js, app.js, _worker.js, dist/index.js, src/index.js
+- Upload langsung via API Cloudflare
+- **Keuntungan**: Deployment paling cepat, tidak perlu clone repo
+
+#### ⚙️ Metode 2: Wrangler CLI (Deploy dari VPS via Wrangler)
+- Clone repository GitHub ke VPS
 - Cek file `wrangler.toml`
-- Jika ada → deploy langsung
-- Jika tidak ada → buat config default
+- Jalankan wrangler publish dengan parameter lengkap
 - **Keuntungan**: Deployment langsung, tidak perlu setup manual
 
-#### Metode 2: GitHub Actions (Manual Setup)
+#### 🔄 Metode 3: GitHub Actions (Manual Setup)
 - Generate file `.github/workflows/deploy.yml`
-- Setup secrets: `CF_API_TOKEN`, `CF_ACCOUNT_ID`
+- Setup secrets: `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_ZONE_ID`
 - **Keuntungan**: CI/CD otomatis, deployment setiap push
 
-#### Metode 3: GitLab CI/CD (Manual Setup)
+#### 🦊 Metode 4: GitLab CI/CD (Manual Setup)
 - Generate file `.gitlab-ci.yml`
-- Setup variables: `CF_API_TOKEN`, `CF_ACCOUNT_ID`
+- Setup variables: `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_ZONE_ID`
 - **Keuntungan**: Pipeline customization, GitLab integration
-
-#### Metode 4: API Cloudflare Direct (Otomatis)
-- Ambil file utama dari repository
-- Upload langsung via API Cloudflare
-- **Keuntungan**: Deployment paling cepat, fallback reliable
 
 ### 2. **Input Format Baru**
 - **Sebelum**: URL script (https://raw.githubusercontent.com/...)

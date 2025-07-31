@@ -94,31 +94,35 @@ Bot akan clone repository dan mencoba deploy dengan 4 metode fallback:
 
 ### Metode Deployment (Fallback)
 
-#### 🔄 Metode 1: Wrangler CLI
-1. Clone repository GitHub
-2. Cek apakah file `wrangler.toml` ada
-3. Jika ada → jalankan `npx wrangler publish`
-4. Jika tidak ada → buat `wrangler.toml` default, lalu publish
-5. Jika berhasil → kirim hasil deploy ke user
-6. Jika gagal → lanjut ke metode 2
+#### ✅ Metode 1: API Langsung (Direct Upload via API)
+1. Bot clone repo GitHub → hanya baca file secara langsung via raw.githubusercontent.com
+2. Bot cari file utama: index.js, worker.js, main.js, app.js, _worker.js, dist/index.js, src/index.js
+3. Jika file ditemukan → ambil konten
+4. Upload ke Cloudflare via API: PUT https://api.cloudflare.com/client/v4/accounts/:account_id/workers/scripts/:script_name
+5. Jika berhasil → selesai ✅
+6. Jika gagal (file tidak ada / upload error) → lanjut ke Metode 2 ❌
 
-#### 🔄 Metode 2: GitHub Actions
-1. Clone repository GitHub
-2. Buat file `.github/workflows/deploy.yml`
-3. Tambahkan secrets: `CF_API_TOKEN`, `CF_ACCOUNT_ID`
-4. Jalankan Actions → tunggu status
-5. Jika gagal → lanjut ke metode 3
+#### ⚙️ Metode 2: Wrangler CLI (Deploy dari VPS via Wrangler)
+1. Bot clone repo GitHub ke folder sementara di VPS
+2. Cek apakah ada file wrangler.toml
+3. Jalankan: npx wrangler publish --name nama_worker --account-id ACCOUNT_ID --zone-id ZONE_ID --api-token API_TOKEN
+4. Jika sukses → selesai ✅
+5. Jika gagal (no wrangler.toml, dependency error, atau publish gagal) → lanjut ke Metode 3 ❌
 
-#### 🔄 Metode 3: GitLab CI/CD
-1. Buat file `.gitlab-ci.yml` ke dalam project
-2. Tambahkan secrets GitLab CI: `CF_API_TOKEN`, `CF_ACCOUNT_ID`
-3. Jalankan pipeline dari GitLab CI/CD
-4. Jika gagal → lanjut ke metode 4
+#### 🔄 Metode 3: GitHub Actions
+1. Cek apakah repo GitHub user bisa dipush atau user upload sendiri file .github/workflows/deploy.yml
+2. File workflow berisi langkah wrangler publish
+3. Pastikan user punya secret: CLOUDFLARE_API_TOKEN, ACCOUNT_ID, ZONE_ID
+4. Bot bantu buat file CI otomatis (jika diizinkan user)
+5. Jika sukses → selesai ✅
+6. Jika gagal → lanjut ke Metode 4 ❌
 
-#### 🔄 Metode 4: API Cloudflare Direct
-1. Ambil file utama (index.js, worker.js, atau main.js)
-2. Upload script langsung via API Cloudflare
-3. Jika berhasil → kirim hasil ke user, selesai
+#### 🦊 Metode 4: GitLab CI/CD
+1. Sama seperti GitHub Actions tapi pakai .gitlab-ci.yml
+2. Bot bantu generate file CI
+3. Bot bantu user setting GitLab secrets
+4. Jika sukses → selesai ✅
+5. Jika gagal → tampilkan pesan bahwa semua metode gagal ❌
 
 ### Struktur Repository yang Didukung
 ```
