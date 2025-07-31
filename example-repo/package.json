@@ -1,0 +1,22 @@
+{
+  "name": "example-cloudflare-worker",
+  "version": "1.0.0",
+  "description": "Example Cloudflare Worker for Telegram Bot testing",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "wrangler publish",
+    "dev": "wrangler dev"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "telegram",
+    "bot",
+    "example"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
