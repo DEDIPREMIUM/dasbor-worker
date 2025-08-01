@@ -4,7 +4,7 @@
   "description": "Example Cloudflare Worker for Telegram Bot testing",
   "main": "index.js",
   "scripts": {
-    "deploy": "wrangler publish",
+    "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
   "keywords": [
