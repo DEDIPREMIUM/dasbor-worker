@@ -311,13 +311,13 @@ async function deployWorkerViaWranglerCLI(ctx, token, accountId, workerName, rep
         }
         
         // Deploy via wrangler dengan environment variables
-        await ctx.reply('🚀 Menjalankan wrangler publish...');
+        await ctx.reply('🚀 Menjalankan wrangler deploy...');
         
         // Ambil zone ID dari sesi login user
         const userData = getUserData(ctx.from.id);
         const zoneId = userData ? userData.zoneId : null;
         
-        const wranglerCommand = 'npx wrangler publish';
+        const wranglerCommand = 'npx wrangler deploy';
         
         // Setup environment variables untuk Wrangler
         const envVars = {
@@ -422,12 +422,12 @@ jobs:
         CLOUDFLARE_ZONE_ID: \${{ secrets.CF_ZONE_ID }}
       run: |
         if [ -f wrangler.toml ]; then
-          wrangler publish
+          wrangler deploy
         else
           echo "name = \\"${workerName}\\"" > wrangler.toml
           echo "main = \\"index.js\\"" >> wrangler.toml
           echo "compatibility_date = \\"2023-01-01\\"" >> wrangler.toml
-          wrangler publish
+          wrangler deploy
         fi`;
         
         fs.writeFileSync(path.join(workflowsDir, 'deploy.yml'), workflowContent);
@@ -469,12 +469,12 @@ deploy_worker:
   script:
     - |
       if [ -f wrangler.toml ]; then
-        wrangler publish
+        wrangler deploy
       else
         echo "name = \\"${workerName}\\"" > wrangler.toml
         echo "main = \\"index.js\\"" >> wrangler.toml
         echo "compatibility_date = \\"2023-01-01\\"" >> wrangler.toml
-        wrangler publish
+        wrangler deploy
       fi
   variables:
     CLOUDFLARE_API_TOKEN: \$CF_API_TOKEN
@@ -802,8 +802,8 @@ async function deployWithWrangler(ctx, tempDir, token, accountId, workerName, sc
         NODE_ENV: 'production'
     };
     
-    // Jalankan wrangler publish
-    const { stdout, stderr } = await execAsync('npx wrangler publish', { 
+    // Jalankan wrangler deploy
+    const { stdout, stderr } = await execAsync('npx wrangler deploy', { 
         cwd: tempDir,
         env: envVars,
         timeout: 120000
@@ -992,7 +992,7 @@ ENVIRONMENT = "production"`;
         }
         
         // Deploy via wrangler
-        await ctx.reply('🚀 Menjalankan wrangler publish...');
+        await ctx.reply('🚀 Menjalankan wrangler deploy...');
         
         const envVars = {
             ...process.env,
@@ -1001,7 +1001,7 @@ ENVIRONMENT = "production"`;
             NODE_ENV: 'production'
         };
         
-        const { stdout, stderr } = await execAsync('npx wrangler publish', { 
+        const { stdout, stderr } = await execAsync('npx wrangler deploy', { 
             cwd: tempDir,
             env: envVars,
             timeout: 120000
