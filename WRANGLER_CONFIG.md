@@ -275,3 +275,23 @@ Bot akan otomatis membuat wrangler.toml dengan konfigurasi:
 5. ✅ **Deploy** dengan konfigurasi yang benar
 
 Dengan konfigurasi yang tepat, success rate deployment bisa mencapai 95%! 🚀
+
+## 🔒 **Keamanan Data Sensitif**
+
+### ❌ **Yang TIDAK Disimpan di wrangler.toml:**
+- API Token Cloudflare
+- Account ID Cloudflare
+- Zone ID Cloudflare
+- Data sensitif lainnya
+
+### ✅ **Yang DISIMPAN di Environment Variables:**
+- `CLOUDFLARE_API_TOKEN`: API Token dari sesi login
+- `CLOUDFLARE_ACCOUNT_ID`: Account ID dari sesi login
+- `CLOUDFLARE_ZONE_ID`: Zone ID dari sesi login
+
+### 🔄 **Alur Data:**
+```
+Sesi Login → Environment Variables → Wrangler CLI → Cloudflare API
+```
+
+**Keamanan data user adalah prioritas utama!** 🔒
