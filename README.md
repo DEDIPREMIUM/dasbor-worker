@@ -206,9 +206,19 @@ cloudflare-workers-telegram-bot/
 
 ## 🔒 Keamanan
 
-- Data user disimpan lokal dalam file JSON
-- API Token tidak dienkripsi (simpan di environment variable untuk production)
-- Setiap user memiliki data terpisah berdasarkan Telegram ID
+- **Data Storage**: Data user disimpan lokal dalam file JSON per Telegram ID
+- **Environment Variables**: API Token, Account ID, dan Zone ID disimpan di environment variables
+- **Session Management**: Setiap user memiliki data terpisah berdasarkan Telegram ID
+- **File Security**: wrangler.toml tidak menyimpan data sensitif
+- **Cleanup**: Temporary files dihapus otomatis setelah deploy
+- **No Hardcoding**: Tidak ada credentials yang di-hardcode di kode
+
+### 🔑 **Data Sensitif yang Aman:**
+- ✅ API Token → Environment Variables
+- ✅ Account ID → Environment Variables  
+- ✅ Zone ID → Environment Variables
+- ✅ Session Data → users.json (lokal)
+- ❌ Tidak ada data sensitif di wrangler.toml
 - Bot hanya mengakses data user yang sedang aktif
 
 ## 🐛 Troubleshooting
