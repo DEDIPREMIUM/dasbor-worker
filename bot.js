@@ -8,6 +8,17 @@ const util = require('util');
 
 const execAsync = util.promisify(exec);
 
+// Fungsi untuk membersihkan error message dari karakter khusus
+function cleanErrorMessage(errorMessage) {
+    if (!errorMessage) return 'Unknown error';
+    
+    // Bersihkan karakter khusus yang bisa menyebabkan parsing error di Telegram
+    return errorMessage
+        .replace(/[^\w\s\-\.:,]/g, '') // Hapus karakter khusus kecuali yang aman
+        .replace(/\s+/g, ' ') // Normalisasi whitespace
+        .substring(0, 200); // Batasi panjang
+}
+
 // Bot token - ganti dengan token bot Anda
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 
@@ -809,18 +820,20 @@ async function deployWithWrangler(ctx, tempDir, token, accountId, workerName, sc
         await ctx.reply(`⚠️ Wrangler error: ${stderr.substring(0, 200)}...`);
     }
     
-    // Cek apakah deploy berhasil
-    if (stdout.includes('Deployed to') || stdout.includes('Successfully deployed') || stdout.includes('Published')) {
-        return {
-            success: true,
-            method: 'Wrangler CLI',
-            message: `✅ Worker berhasil di-deploy!\n\n📝 Nama: ${workerName}\n📁 File: ${scriptFile}\n📝 Jenis Kode: ${codeType}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: Wrangler CLI dengan deteksi otomatis`
-        };
-    } else {
-        // Log detail error untuk debugging
-        const errorDetails = stderr || stdout || 'Unknown error';
-        throw new Error(`Wrangler deploy gagal: ${errorDetails.substring(0, 300)}`);
-    }
+            // Cek apakah deploy berhasil
+        if (stdout.includes('Deployed to') || stdout.includes('Successfully deployed') || stdout.includes('Published')) {
+            return {
+                success: true,
+                method: 'Wrangler CLI',
+                message: `✅ Worker berhasil di-deploy!\n\n📝 Nama: ${workerName}\n📁 File: ${scriptFile}\n📝 Jenis Kode: ${codeType}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: Wrangler CLI dengan deteksi otomatis`
+            };
+        } else {
+            // Log detail error untuk debugging
+            const errorDetails = stderr || stdout || 'Unknown error';
+            // Bersihkan error message dari karakter khusus
+            const cleanError = cleanErrorMessage(errorDetails);
+            throw new Error(`Wrangler deploy gagal: ${cleanError}`);
+        }
 }
 
 // Fungsi untuk deploy worker via Wrangler CLI Simpel (Metode 1)
@@ -1438,8 +1451,10 @@ bot.on('text', async (ctx) => {
                         let errorDetails = '';
                         
                         if (result.method === 'Wrangler CLI') {
+                            // Bersihkan error message dari karakter khusus
+                            const cleanError = cleanErrorMessage(result.error);
                             errorDetails += `🔄 **Deployment Gagal:** ❌\n`;
-                            errorDetails += `   Error: ${result.error}\n\n`;
+                            errorDetails += `   Error: ${cleanError}\n\n`;
                         }
                         
                         errorDetails += `💡 **Saran:**\n`;
@@ -1458,7 +1473,9 @@ bot.on('text', async (ctx) => {
                     }
                     
                 } catch (error) {
-                    await ctx.reply(`❌ **Error tidak terduga:** ${error.message}\n\n🏠 Silakan coba lagi atau kembali ke menu utama.`, {
+                    // Bersihkan error message dari karakter khusus
+                    const cleanError = cleanErrorMessage(error.message);
+                    await ctx.reply(`❌ **Error tidak terduga:** ${cleanError}\n\n🏠 Silakan coba lagi atau kembali ke menu utama.`, {
                         parse_mode: 'Markdown',
                         ...Markup.inlineKeyboard([
                             [Markup.button.callback('🏠 Kembali ke Menu', 'main_menu')]
@@ -1471,7 +1488,9 @@ bot.on('text', async (ctx) => {
         }
     } catch (error) {
         console.error('Error handling text input:', error);
-        await ctx.reply('❌ Terjadi kesalahan. Silakan coba lagi atau mulai ulang dengan /start');
+        // Bersihkan error message dari karakter khusus
+        const cleanError = cleanErrorMessage(error.message);
+        await ctx.reply(`❌ Terjadi kesalahan: ${cleanError}\n\nSilakan coba lagi atau mulai ulang dengan /start`);
         clearUserState(userId);
     }
 });
@@ -1691,7 +1710,9 @@ bot.action('change_account', async (ctx) => {
 // Error handling
 bot.catch((err, ctx) => {
     console.error('Bot error:', err);
-    ctx.reply('❌ Terjadi kesalahan internal. Silakan coba lagi atau mulai ulang dengan /start');
+    // Bersihkan error message dari karakter khusus
+    const cleanError = cleanErrorMessage(err.message);
+    ctx.reply(`❌ Terjadi kesalahan internal: ${cleanError}\n\nSilakan coba lagi atau mulai ulang dengan /start`);
 });
 
 // Start bot
