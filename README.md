@@ -92,38 +92,30 @@ Format: `https://github.com/username/repo-name`
 
 Bot akan clone repository dan mencoba deploy dengan 4 metode fallback:
 
-### Metode Deployment (Fallback)
+### Metode Deployment (3 Cara Simpel)
 
-#### ⚙️ Metode 1: Wrangler CLI (Paling Reliable - 95% Success Rate)
-1. Bot clone repo GitHub ke folder sementara di VPS
-2. Cek apakah ada file wrangler.toml
-3. Cari file script utama: index.js, worker.js, main.js, app.js, _worker.js
-4. Jalankan: npx wrangler publish --name nama_worker --account-id ACCOUNT_ID --api-token API_TOKEN
-5. Jika sukses → selesai ✅
-6. Jika gagal → lanjut ke Metode 2 ❌
+#### ⚙️ Metode 1: Wrangler CLI dengan wrangler.toml (Paling Reliable)
+1. Bot cari file utama dari repository GitHub
+2. Bot cek apakah ada wrangler.toml di repository
+3. Jika wrangler.toml ada → update dengan nama worker, file utama, account_id
+4. Jika wrangler.toml tidak ada → buat otomatis dengan data user
+5. Clone repository dan deploy via wrangler publish
+6. Jika sukses → selesai ✅
+7. Jika gagal → lanjut ke Metode 2 ❌
 
-#### ✅ Metode 2: API Langsung (Fallback Cepat - 85% Success Rate)
-1. Bot clone repo GitHub → hanya baca file secara langsung via raw.githubusercontent.com
-2. Bot cari file utama: index.js, worker.js, main.js, app.js, _worker.js, dist/index.js, src/index.js
-3. Jika file ditemukan → ambil konten
-4. Upload ke Cloudflare via API: PUT https://api.cloudflare.com/client/v4/accounts/:account_id/workers/scripts/:script_name
-5. Jika berhasil → selesai ✅
-6. Jika gagal → lanjut ke Metode 3 ❌
+#### ✅ Metode 2: API Langsung (Fallback Cepat)
+1. Bot cari file utama dari repository GitHub
+2. Download script langsung via raw.githubusercontent.com
+3. Upload script ke Cloudflare via API dengan Content-Type yang benar
+4. Jika berhasil → selesai ✅
+5. Jika gagal → lanjut ke Metode 3 ❌
 
-#### 🔄 Metode 3: GitHub Actions (CI/CD - 80% Success Rate)
-1. Cek apakah repo GitHub user bisa dipush atau user upload sendiri file .github/workflows/deploy.yml
-2. File workflow berisi langkah wrangler publish
-3. Pastikan user punya secret: CLOUDFLARE_API_TOKEN, ACCOUNT_ID, ZONE_ID
-4. Bot bantu buat file CI otomatis (jika diizinkan user)
-5. Jika sukses → selesai ✅
-6. Jika gagal → lanjut ke Metode 4 ❌
-
-#### 🦊 Metode 4: GitLab CI/CD (Alternatif CI/CD - 75% Success Rate)
-1. Sama seperti GitHub Actions tapi pakai .gitlab-ci.yml
-2. Bot bantu generate file CI
-3. Bot bantu user setting GitLab secrets
+#### 🔄 Metode 3: GitHub Actions (CI/CD)
+1. Generate file .github/workflows/deploy.yml
+2. Setup secrets: CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
+3. Push ke repository untuk trigger deployment
 4. Jika sukses → selesai ✅
-5. Jika gagal → tampilkan pesan bahwa semua metode gagal ❌
+5. Jika gagal → semua metode gagal ❌
 
 ### Struktur Repository yang Didukung
 

@@ -642,45 +642,395 @@ async function deployWorkerViaAPIDirect(ctx, token, accountId, workerName, repoU
     }
 }
 
+// Fungsi untuk deploy worker via Wrangler CLI Simpel (Metode 1)
+async function deployWorkerViaWranglerSimple(ctx, token, accountId, workerName, repoUrl) {
+    try {
+        await ctx.reply('📥 Mencari file utama dari repository...');
+        
+        // Extract repo info from URL
+        const repoMatch = repoUrl.match(/github\.com\/([^\/]+\/[^\/]+)/);
+        if (!repoMatch) {
+            throw new Error('URL GitHub tidak valid');
+        }
+        
+        const repoPath = repoMatch[1];
+        
+        // Daftar file utama yang akan dicari
+        const possibleFiles = [
+            'index.js',
+            'worker.js', 
+            'main.js',
+            'app.js',
+            '_worker.js'
+        ];
+        
+        let scriptFile = null;
+        let scriptContent = null;
+        
+        // Cari file utama
+        for (const file of possibleFiles) {
+            try {
+                const rawUrl = `https://raw.githubusercontent.com/${repoPath}/main/${file}`;
+                await ctx.reply(`🔍 Mencari file: ${file}...`);
+                
+                const response = await axios.get(rawUrl, {
+                    timeout: 10000,
+                    validateStatus: function (status) {
+                        return status >= 200 && status < 300;
+                    }
+                });
+                
+                if (response.data && response.data.trim().length > 0) {
+                    scriptFile = file;
+                    scriptContent = response.data;
+                    await ctx.reply(`✅ File ditemukan: ${file}`);
+                    break;
+                }
+            } catch (fileError) {
+                // Coba branch 'master' jika 'main' gagal
+                try {
+                    const rawUrl = `https://raw.githubusercontent.com/${repoPath}/master/${file}`;
+                    const response = await axios.get(rawUrl, {
+                        timeout: 10000,
+                        validateStatus: function (status) {
+                            return status >= 200 && status < 300;
+                        }
+                    });
+                    
+                    if (response.data && response.data.trim().length > 0) {
+                        scriptFile = file;
+                        scriptContent = response.data;
+                        await ctx.reply(`✅ File ditemukan: ${file} (branch master)`);
+                        break;
+                    }
+                } catch (masterError) {
+                    // Lanjut ke file berikutnya
+                    continue;
+                }
+            }
+        }
+        
+        if (!scriptFile) {
+            throw new Error('Tidak dapat menemukan file script utama (index.js, worker.js, main.js, app.js, _worker.js)');
+        }
+        
+        // Cek wrangler.toml
+        await ctx.reply('🔍 Mencari wrangler.toml...');
+        let wranglerContent = null;
+        
+        try {
+            const wranglerUrl = `https://raw.githubusercontent.com/${repoPath}/main/wrangler.toml`;
+            const response = await axios.get(wranglerUrl, {
+                timeout: 10000,
+                validateStatus: function (status) {
+                    return status >= 200 && status < 300;
+                }
+            });
+            
+            if (response.data) {
+                wranglerContent = response.data;
+                await ctx.reply('✅ wrangler.toml ditemukan, akan diupdate...');
+            }
+        } catch (wranglerError) {
+            try {
+                const wranglerUrl = `https://raw.githubusercontent.com/${repoPath}/master/wrangler.toml`;
+                const response = await axios.get(wranglerUrl, {
+                    timeout: 10000,
+                    validateStatus: function (status) {
+                        return status >= 200 && status < 300;
+                    }
+                });
+                
+                if (response.data) {
+                    wranglerContent = response.data;
+                    await ctx.reply('✅ wrangler.toml ditemukan (branch master), akan diupdate...');
+                }
+            } catch (masterWranglerError) {
+                await ctx.reply('📝 wrangler.toml tidak ditemukan, akan buat otomatis...');
+            }
+        }
+        
+        // Clone repository untuk deployment
+        await ctx.reply('📥 Cloning repository...');
+        const tempDir = await cloneGitHubRepo(repoUrl, workerName);
+        
+        // Update atau buat wrangler.toml
+        const wranglerPath = path.join(tempDir, 'wrangler.toml');
+        
+        if (wranglerContent) {
+            // Update wrangler.toml yang ada
+            let updatedContent = wranglerContent;
+            
+            // Update nama worker
+            updatedContent = updatedContent.replace(/name\s*=\s*"[^"]*"/, `name = "${workerName}"`);
+            
+            // Update main file
+            updatedContent = updatedContent.replace(/main\s*=\s*"[^"]*"/, `main = "${scriptFile}"`);
+            
+            // Tambahkan account_id jika tidak ada
+            if (!updatedContent.includes('account_id')) {
+                updatedContent += `\naccount_id = "${accountId}"`;
+            }
+            
+            fs.writeFileSync(wranglerPath, updatedContent);
+            await ctx.reply('✅ wrangler.toml berhasil diupdate');
+        } else {
+            // Buat wrangler.toml baru
+            const newWranglerContent = `# Cloudflare Workers Configuration
+# Generated by Telegram Bot
+
+name = "${workerName}"
+main = "${scriptFile}"
+account_id = "${accountId}"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = ""
+
+[env.production]
+name = "${workerName}"
+
+[vars]
+ENVIRONMENT = "production"`;
+            
+            fs.writeFileSync(wranglerPath, newWranglerContent);
+            await ctx.reply('✅ wrangler.toml berhasil dibuat');
+        }
+        
+        // Deploy via wrangler
+        await ctx.reply('🚀 Menjalankan wrangler publish...');
+        
+        const envVars = {
+            ...process.env,
+            CLOUDFLARE_API_TOKEN: token,
+            CLOUDFLARE_ACCOUNT_ID: accountId,
+            NODE_ENV: 'production'
+        };
+        
+        const { stdout, stderr } = await execAsync('npx wrangler publish', { 
+            cwd: tempDir,
+            env: envVars,
+            timeout: 120000
+        });
+        
+        // Log output untuk debugging
+        if (stdout) {
+            console.log('Wrangler stdout:', stdout);
+            await ctx.reply(`📋 Wrangler output: ${stdout.substring(0, 200)}...`);
+        }
+        if (stderr) {
+            console.log('Wrangler stderr:', stderr);
+            await ctx.reply(`⚠️ Wrangler error: ${stderr.substring(0, 200)}...`);
+        }
+        
+        // Cek apakah deploy berhasil
+        if (stdout.includes('Deployed to') || stdout.includes('Successfully deployed') || stdout.includes('Published')) {
+            // Cleanup
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            
+            return {
+                success: true,
+                method: 'Wrangler CLI',
+                message: `✅ Worker berhasil di-deploy via Wrangler CLI!\n\n📝 Nama: ${workerName}\n📁 File: ${scriptFile}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: Wrangler CLI dengan wrangler.toml`
+            };
+        } else {
+            // Log detail error untuk debugging
+            const errorDetails = stderr || stdout || 'Unknown error';
+            throw new Error(`Wrangler deploy gagal: ${errorDetails.substring(0, 300)}`);
+        }
+    } catch (error) {
+        // Cleanup on error
+        try {
+            const tempDir = path.join(__dirname, 'temp', workerName);
+            if (fs.existsSync(tempDir)) {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            }
+        } catch (cleanupError) {
+            console.error('Error cleaning up temp directory:', cleanupError);
+        }
+        
+        return {
+            success: false,
+            method: 'Wrangler CLI',
+            error: error.message
+        };
+    }
+}
+
+// Fungsi untuk deploy worker via API Simpel (Metode 2)
+async function deployWorkerViaAPISimple(ctx, token, accountId, workerName, repoUrl) {
+    try {
+        await ctx.reply('📥 Mencari file utama dari repository...');
+        
+        // Extract repo info from URL
+        const repoMatch = repoUrl.match(/github\.com\/([^\/]+\/[^\/]+)/);
+        if (!repoMatch) {
+            throw new Error('URL GitHub tidak valid');
+        }
+        
+        const repoPath = repoMatch[1];
+        
+        // Daftar file utama yang akan dicari
+        const possibleFiles = [
+            'index.js',
+            'worker.js', 
+            'main.js',
+            'app.js',
+            '_worker.js'
+        ];
+        
+        let script = null;
+        let foundFile = null;
+        
+        // Cari file utama
+        for (const file of possibleFiles) {
+            try {
+                const rawUrl = `https://raw.githubusercontent.com/${repoPath}/main/${file}`;
+                await ctx.reply(`🔍 Mencari file: ${file}...`);
+                
+                const response = await axios.get(rawUrl, {
+                    timeout: 10000,
+                    validateStatus: function (status) {
+                        return status >= 200 && status < 300;
+                    }
+                });
+                
+                if (response.data && response.data.trim().length > 0) {
+                    script = response.data;
+                    foundFile = file;
+                    await ctx.reply(`✅ File ditemukan: ${file}`);
+                    break;
+                }
+            } catch (fileError) {
+                // Coba branch 'master' jika 'main' gagal
+                try {
+                    const rawUrl = `https://raw.githubusercontent.com/${repoPath}/master/${file}`;
+                    const response = await axios.get(rawUrl, {
+                        timeout: 10000,
+                        validateStatus: function (status) {
+                            return status >= 200 && status < 300;
+                        }
+                    });
+                    
+                    if (response.data && response.data.trim().length > 0) {
+                        script = response.data;
+                        foundFile = file;
+                        await ctx.reply(`✅ File ditemukan: ${file} (branch master)`);
+                        break;
+                    }
+                } catch (masterError) {
+                    // Lanjut ke file berikutnya
+                    continue;
+                }
+            }
+        }
+        
+        if (!script) {
+            throw new Error('Tidak dapat menemukan file script utama (index.js, worker.js, main.js, app.js, _worker.js)');
+        }
+        
+        // Validasi script
+        await ctx.reply('🔍 Validasi script...');
+        
+        const scriptSize = script.length;
+        if (scriptSize > 1000000) { // 1MB
+            throw new Error(`Script terlalu besar (${Math.round(scriptSize/1024)}KB). Maksimal 1MB`);
+        }
+        
+        await ctx.reply(`📊 Script size: ${Math.round(scriptSize/1024)}KB`);
+        
+        // Warning untuk script yang besar
+        if (scriptSize > 500000) { // 500KB
+            await ctx.reply('⚠️ Warning: Script cukup besar, deployment mungkin memakan waktu lebih lama...');
+        }
+        
+        await ctx.reply('🚀 Upload script ke Cloudflare via API...');
+        
+        try {
+            // Deploy via API dengan Content-Type yang benar
+            const response = await axios.put(
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+                script, // Kirim script langsung sebagai body
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/javascript' // Content-Type yang benar
+                    },
+                    timeout: 30000
+                }
+            );
+            
+            // API langsung mengembalikan script yang diupload jika berhasil
+            if (response.status === 200 || response.status === 201) {
+                return {
+                    success: true,
+                    method: 'API Langsung',
+                    message: `✅ Worker berhasil di-deploy via API Langsung!\n\n📝 Nama: ${workerName}\n📁 File: ${foundFile}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: API Langsung`
+                };
+            } else {
+                const errorDetails = JSON.stringify(response.data);
+                await ctx.reply(`⚠️ API Error: ${errorDetails.substring(0, 200)}...`);
+                throw new Error(`API Error: ${errorDetails}`);
+            }
+        } catch (apiError) {
+            if (apiError.response) {
+                const errorMessage = `API Error ${apiError.response.status}: ${JSON.stringify(apiError.response.data)}`;
+                await ctx.reply(`⚠️ API Error: ${errorMessage.substring(0, 200)}...`);
+                throw new Error(errorMessage);
+            } else {
+                throw new Error(`API Error: ${apiError.message}`);
+            }
+        }
+    } catch (error) {
+        let errorMessage = 'Unknown error';
+        
+        if (error.response) {
+            errorMessage = `HTTP ${error.response.status}: ${error.response.data?.errors?.[0]?.message || error.response.statusText}`;
+        } else if (error.request) {
+            errorMessage = 'Tidak ada respons dari server';
+        } else {
+            errorMessage = error.message;
+        }
+        
+        return {
+            success: false,
+            method: 'API Langsung',
+            error: errorMessage
+        };
+    }
+}
 
 
-// Fungsi untuk deploy worker dengan fallback (Urutan Optimal)
+
+// Fungsi untuk deploy worker dengan 3 cara simpel
 async function deployWorkerWithFallback(ctx, token, accountId, workerName, repoUrl) {
     const results = [];
     
-    // Metode 1: Wrangler CLI (Paling reliable - 95% success rate)
-    await ctx.reply('🔄 Metode 1: Wrangler CLI (Deploy dari VPS via Wrangler)...');
-    const wranglerResult = await deployWorkerViaWranglerCLI(ctx, token, accountId, workerName, repoUrl);
+    // Metode 1: Wrangler CLI dengan wrangler.toml (Paling reliable)
+    await ctx.reply('🔄 Metode 1: Wrangler CLI dengan wrangler.toml...');
+    const wranglerResult = await deployWorkerViaWranglerSimple(ctx, token, accountId, workerName, repoUrl);
     results.push(wranglerResult);
     
     if (wranglerResult.success) {
         return wranglerResult;
     }
     
-    // Metode 2: API Langsung (Fallback cepat - 85% success rate)
-    await ctx.reply('🔄 Metode 1 gagal, mencoba Metode 2: API Langsung (Direct Upload)...');
-    const apiResult = await deployWorkerViaAPIDirect(ctx, token, accountId, workerName, repoUrl);
+    // Metode 2: API Langsung (Fallback cepat)
+    await ctx.reply('🔄 Metode 1 gagal, mencoba Metode 2: API Langsung...');
+    const apiResult = await deployWorkerViaAPISimple(ctx, token, accountId, workerName, repoUrl);
     results.push(apiResult);
     
     if (apiResult.success) {
         return apiResult;
     }
     
-    // Metode 3: GitHub Actions (CI/CD - 80% success rate)
-    await ctx.reply('🔄 Metode 2 gagal, mencoba Metode 3: GitHub Actions (CI/CD)...');
+    // Metode 3: GitHub Actions (CI/CD)
+    await ctx.reply('🔄 Metode 2 gagal, mencoba Metode 3: GitHub Actions...');
     const githubResult = await deployWorkerViaGitHubActions(ctx, workerName, repoUrl);
     results.push(githubResult);
     
-    if (githubResult.success) {
-        return githubResult;
-    }
-    
-    // Metode 4: GitLab CI/CD (Alternatif CI/CD - 75% success rate)
-    await ctx.reply('🔄 Metode 3 gagal, mencoba Metode 4: GitLab CI/CD (Pipeline)...');
-    const gitlabResult = await deployWorkerViaGitLabCI(ctx, workerName, repoUrl);
-    results.push(gitlabResult);
-    
-    return gitlabResult;
+    return githubResult;
 }
 
 // Fungsi untuk mendapatkan daftar workers
@@ -900,11 +1250,6 @@ bot.on('text', async (ctx) => {
                         
                         if (result.method === 'GitHub Actions') {
                             errorDetails += `🔄 **Metode 3 (GitHub Actions):** ❌ Gagal\n`;
-                            errorDetails += `   Error: ${result.error}\n\n`;
-                        }
-                        
-                        if (result.method === 'GitLab CI/CD') {
-                            errorDetails += `🔄 **Metode 4 (GitLab CI/CD):** ❌ Gagal\n`;
                             errorDetails += `   Error: ${result.error}\n\n`;
                         }
                         
