@@ -126,13 +126,45 @@ Bot akan clone repository dan mencoba deploy dengan 4 metode fallback:
 5. Jika gagal → tampilkan pesan bahwa semua metode gagal ❌
 
 ### Struktur Repository yang Didukung
+
+Bot mendukung repository dengan struktur berikut:
+
 ```
 your-worker-repo/
-├── index.js          # File utama worker
-├── wrangler.toml     # Konfigurasi (opsional)
-├── package.json      # Dependencies (opsional)
+├── index.js          # File utama (WAJIB)
+├── worker.js         # Alternatif file utama
+├── main.js           # Alternatif file utama
+├── app.js            # Alternatif file utama
+├── _worker.js        # Alternatif file utama
+├── wrangler.toml     # Konfigurasi (RECOMMENDED)
+├── package.json      # Dependencies (jika ada)
 └── README.md         # Dokumentasi
 ```
+
+### 📋 Konfigurasi wrangler.toml
+
+Bot akan otomatis membuat atau memvalidasi `wrangler.toml`:
+
+```toml
+# Cloudflare Workers Configuration
+name = "your-worker-name"
+main = "index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[env.production]
+name = "your-worker-name"
+
+[vars]
+ENVIRONMENT = "production"
+```
+
+**Fitur Auto-Generation:**
+- ✅ Deteksi file wrangler.toml
+- ✅ Validasi konfigurasi
+- ✅ Auto-generate jika tidak ada
+- ✅ Update main file sesuai file yang ditemukan
+- ✅ Update nama worker sesuai input
 
 Contoh script Worker sederhana:
 ```javascript
@@ -187,11 +219,20 @@ cloudflare-workers-telegram-bot/
 - Restart bot dengan `npm start`
 
 ### Deploy gagal
-- **Metode 1 (Wrangler CLI)**: Pastikan repository GitHub publik dan memiliki file script utama
+- **Metode 1 (Wrangler CLI)**: 
+  - Pastikan repository GitHub publik dan memiliki file script utama
+  - Cek apakah wrangler.toml valid (bot akan auto-generate jika tidak ada)
+  - Pastikan nama worker unik dan tidak sudah ada
 - **Metode 2 (API Langsung)**: Cek apakah file script bisa diakses via raw.githubusercontent.com
 - **Metode 3 & 4 (CI/CD)**: Setup secrets/variables dengan benar di GitHub/GitLab
 - Pastikan API Token memiliki permission "Cloudflare Workers (Read, Write)"
 - Cek format URL repository GitHub (https://github.com/username/repo-name)
+
+### Error wrangler.toml
+- **"Invalid wrangler.toml"**: Bot akan auto-generate konfigurasi default
+- **"Name already exists"**: Ganti nama worker, pastikan unik
+- **"Main file not found"**: Pastikan ada file index.js, worker.js, main.js, app.js, atau _worker.js
+- **"Compatibility date required"**: Bot akan set ke "2024-01-01" otomatis
 
 ### Error "Account ID tidak valid"
 - Pastikan Account ID 32 karakter hex
