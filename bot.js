@@ -582,33 +582,36 @@ async function deployWorkerViaAPIDirect(ctx, token, accountId, workerName, repoU
         }
         
         await ctx.reply(`📊 Script size: ${Math.round(scriptSize/1024)}KB`);
+        
+        // Warning untuk script yang besar
+        if (scriptSize > 500000) { // 500KB
+            await ctx.reply('⚠️ Warning: Script cukup besar, deployment mungkin memakan waktu lebih lama...');
+        }
         await ctx.reply('🚀 Upload script ke Cloudflare via API...');
         
         try {
-            // Deploy via API
+            // Deploy via API dengan Content-Type yang benar
             const response = await axios.put(
                 `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
-                {
-                    script: script,
-                    usage_model: 'bundled'
-                },
+                script, // Kirim script langsung sebagai body
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/javascript' // Content-Type yang benar
                     },
                     timeout: 30000
                 }
             );
             
-            if (response.data.success) {
+            // API langsung mengembalikan script yang diupload jika berhasil
+            if (response.status === 200 || response.status === 201) {
                 return {
                     success: true,
                     method: 'API Langsung',
                     message: `✅ Worker berhasil di-deploy via API Langsung!\n\n📝 Nama: ${workerName}\n📁 File: ${foundFile}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: API Langsung (85% Success Rate)`
                 };
             } else {
-                const errorDetails = JSON.stringify(response.data.errors);
+                const errorDetails = JSON.stringify(response.data);
                 await ctx.reply(`⚠️ API Error: ${errorDetails.substring(0, 200)}...`);
                 throw new Error(`API Error: ${errorDetails}`);
             }
