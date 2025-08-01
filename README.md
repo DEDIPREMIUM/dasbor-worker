@@ -92,30 +92,33 @@ Format: `https://github.com/username/repo-name`
 
 Bot akan clone repository dan mencoba deploy dengan 4 metode fallback:
 
-### Metode Deployment (3 Cara Simpel)
+### Metode Deployment (Sistem Cerdas)
 
-#### ⚙️ Metode 1: Wrangler CLI dengan wrangler.toml (Paling Reliable)
-1. Bot cari file utama dari repository GitHub
-2. Bot cek apakah ada wrangler.toml di repository
-3. Jika wrangler.toml ada → update dengan nama worker, file utama, account_id
-4. Jika wrangler.toml tidak ada → buat otomatis dengan data user
-5. Clone repository dan deploy via wrangler publish
-6. Jika sukses → selesai ✅
-7. Jika gagal → lanjut ke Metode 2 ❌
+#### 🚀 Langkah-langkah Deployment:
+1. **Download/Clone Repository**
+   - Bot akan clone repository GitHub ke VPS
+   - Pastikan repository publik dan valid
 
-#### ✅ Metode 2: API Langsung (Fallback Cepat)
-1. Bot cari file utama dari repository GitHub
-2. Download script langsung via raw.githubusercontent.com
-3. Upload script ke Cloudflare via API dengan Content-Type yang benar
-4. Jika berhasil → selesai ✅
-5. Jika gagal → lanjut ke Metode 3 ❌
+2. **Deteksi File Utama dan Jenis Kode**
+   - Cari file: `index.js`, `worker.js`, `main.js`, `app.js`, `_worker.js`
+   - Deteksi jenis kode:
+     - **ES Modules**: Jika ada `export default`
+     - **Service Worker**: Jika ada `addEventListener`
+     - **CommonJS**: Jika ada `module.exports` atau `require()`
 
-#### 🔄 Metode 3: GitHub Actions (CI/CD)
-1. Generate file .github/workflows/deploy.yml
-2. Setup secrets: CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
-3. Push ke repository untuk trigger deployment
-4. Jika sukses → selesai ✅
-5. Jika gagal → semua metode gagal ❌
+3. **Buat wrangler.toml Otomatis**
+   - Konfigurasi sesuai jenis kode yang terdeteksi
+   - Include account_id dan nama worker
+   - Setup compatibility flags yang sesuai
+
+4. **Deploy dengan Wrangler**
+   - Jalankan `npx wrangler publish`
+   - Gunakan environment variables untuk keamanan
+   - Monitor progress deployment
+
+5. **Kirim Hasil ke User**
+   - Success: URL worker dan detail deployment
+   - Error: Pesan error yang informatif
 
 ### Struktur Repository yang Didukung
 
