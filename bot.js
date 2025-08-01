@@ -330,13 +330,15 @@ async function deployWorkerViaWranglerCLI(ctx, token, accountId, workerName, rep
         // Log output untuk debugging
         if (stdout) {
             console.log('Wrangler stdout:', stdout);
+            await ctx.reply(`📋 Wrangler output: ${stdout.substring(0, 200)}...`);
         }
         if (stderr) {
             console.log('Wrangler stderr:', stderr);
+            await ctx.reply(`⚠️ Wrangler error: ${stderr.substring(0, 200)}...`);
         }
         
         // Cek apakah deploy berhasil
-        if (stdout.includes('Deployed to') || stdout.includes('Successfully deployed')) {
+        if (stdout.includes('Deployed to') || stdout.includes('Successfully deployed') || stdout.includes('Published')) {
             // Cleanup
             fs.rmSync(tempDir, { recursive: true, force: true });
             
@@ -346,7 +348,9 @@ async function deployWorkerViaWranglerCLI(ctx, token, accountId, workerName, rep
                 message: `✅ Worker berhasil di-deploy via Wrangler CLI!\n\n📝 Nama: ${workerName}\n📁 File: ${scriptFile}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: Wrangler CLI (95% Success Rate)`
             };
         } else {
-            throw new Error('Deploy tidak berhasil, tidak ada konfirmasi success');
+            // Log detail error untuk debugging
+            const errorDetails = stderr || stdout || 'Unknown error';
+            throw new Error(`Wrangler deploy gagal: ${errorDetails.substring(0, 300)}`);
         }
     } catch (error) {
         // Cleanup on error
@@ -563,29 +567,60 @@ async function deployWorkerViaAPIDirect(ctx, token, accountId, workerName, repoU
             throw new Error('Tidak dapat menemukan file script utama. File yang dicari: index.js, worker.js, main.js, app.js, _worker.js, dist/index.js, src/index.js');
         }
         
+        // Validasi script sebelum deploy
+        await ctx.reply('🔍 Validasi script...');
+        
+        // Cek apakah script valid JavaScript
+        if (!script.includes('addEventListener') && !script.includes('export default')) {
+            await ctx.reply('⚠️ Warning: Script mungkin bukan Cloudflare Worker yang valid');
+        }
+        
+        // Cek ukuran script
+        const scriptSize = script.length;
+        if (scriptSize > 1000000) { // 1MB
+            throw new Error(`Script terlalu besar (${Math.round(scriptSize/1024)}KB). Maksimal 1MB`);
+        }
+        
+        await ctx.reply(`📊 Script size: ${Math.round(scriptSize/1024)}KB`);
         await ctx.reply('🚀 Upload script ke Cloudflare via API...');
         
-        // Deploy via API
-        const response = await axios.put(
-            `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
-            {
-                script: script,
-                usage_model: 'bundled'
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+        try {
+            // Deploy via API
+            const response = await axios.put(
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}`,
+                {
+                    script: script,
+                    usage_model: 'bundled'
                 },
-                timeout: 30000
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 30000
+                }
+            );
+            
+            if (response.data.success) {
+                return {
+                    success: true,
+                    method: 'API Langsung',
+                    message: `✅ Worker berhasil di-deploy via API Langsung!\n\n📝 Nama: ${workerName}\n📁 File: ${foundFile}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: API Langsung (85% Success Rate)`
+                };
+            } else {
+                const errorDetails = JSON.stringify(response.data.errors);
+                await ctx.reply(`⚠️ API Error: ${errorDetails.substring(0, 200)}...`);
+                throw new Error(`API Error: ${errorDetails}`);
             }
-        );
-        
-        return {
-            success: true,
-            method: 'API Langsung',
-            message: `✅ Worker berhasil di-deploy via API Langsung!\n\n📝 Nama: ${workerName}\n📁 File: ${foundFile}\n🔗 URL: https://${workerName}.workers.dev\n\nMetode: API Langsung (85% Success Rate)`
-        };
+        } catch (apiError) {
+            if (apiError.response) {
+                const errorMessage = `API Error ${apiError.response.status}: ${JSON.stringify(apiError.response.data)}`;
+                await ctx.reply(`⚠️ API Error: ${errorMessage.substring(0, 200)}...`);
+                throw new Error(errorMessage);
+            } else {
+                throw new Error(`API Error: ${apiError.message}`);
+            }
+        }
     } catch (error) {
         let errorMessage = 'Unknown error';
         
@@ -1140,6 +1175,7 @@ bot.help(async (ctx) => {
 • /help - Tampilkan bantuan ini
 • /menu - Tampilkan menu utama
 • /status - Cek status akun
+• /debug - Debug koneksi dan akun
 
 🛠 **Fitur Utama:**
 • Deploy Worker dengan 4 metode fallback
@@ -1149,17 +1185,53 @@ bot.help(async (ctx) => {
 
 💡 **Tips:**
 • Pastikan API Token memiliki permission yang benar
-• Gunakan URL raw GitHub untuk script worker
+• Gunakan URL GitHub repository untuk script worker
 • Backup data penting sebelum menghapus worker
+• Gunakan /debug untuk troubleshooting
 
 🔗 **Links:**
 • [Cloudflare Dashboard](https://dash.cloudflare.com)
 • [Workers Documentation](https://developers.cloudflare.com/workers/)
-• [Bot Source Code](https://github.com/your-repo)
+• [Troubleshooting Guide](./TROUBLESHOOTING.md)
 
 Untuk memulai, gunakan /start`;
 
     await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
+});
+
+// Command untuk debugging
+bot.command('debug', async (ctx) => {
+    const userData = getUserData(ctx.from.id);
+    if (!userData) {
+        return ctx.reply('❌ Anda belum login. Gunakan /start untuk memulai.');
+    }
+    
+    try {
+        await ctx.reply('🔍 Testing koneksi ke Cloudflare...');
+        
+        // Test API Token
+        const tokenTest = await validateCloudflareToken(userData.apiToken, userData.accountId);
+        
+        // Test Workers List
+        const workersList = await getWorkersList(userData.apiToken, userData.accountId);
+        
+        const debugMessage = `🔧 **Debug Info**\n\n` +
+            `✅ API Token: ${tokenTest ? 'Valid' : 'Tidak valid'}\n` +
+            `📊 Workers Count: ${workersList.length}\n` +
+            `🆔 Account ID: ${userData.accountId}\n` +
+            `🌐 Zone ID: ${userData.zoneId}\n\n` +
+            `Status: ${tokenTest ? '✅ Semua OK' : '❌ Ada masalah'}`;
+        
+        await ctx.reply(debugMessage, { parse_mode: 'Markdown' });
+        
+        if (workersList.length > 0) {
+            const workersListText = workersList.map(w => `- ${w.name}: https://${w.name}.workers.dev`).join('\n');
+            await ctx.reply(`📋 **Workers yang ada:**\n\n${workersListText}`, { parse_mode: 'Markdown' });
+        }
+        
+    } catch (error) {
+        await ctx.reply(`❌ **Debug Error:**\n\n${error.message}`);
+    }
 });
 
 // Command /menu
