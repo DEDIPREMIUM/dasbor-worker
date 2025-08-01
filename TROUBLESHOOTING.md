@@ -118,6 +118,12 @@ npx wrangler publish
 - Pastikan nama worker valid (3-50 karakter, alphanumeric + dash/underscore)
 - Cek ukuran script (maksimal 1MB)
 
+#### ❌ **Error: "HTTP 415: Unsupported Media Type"**
+**Solusi:**
+- Bot akan otomatis menggunakan Content-Type yang benar
+- Pastikan script adalah valid JavaScript
+- Cek apakah ada karakter khusus di script
+
 #### ❌ **Error: "HTTP 401: Unauthorized"**
 **Solusi:**
 - Cek API Token
